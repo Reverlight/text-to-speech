@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TTS Player</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0e0e; --surface: #161616; --border: #2a2a2a;
+    --accent: #c8f060; --accent-dim: #8aaa30;
+    --text: #d4d4d4; --text-dim: #666;
+    --playing-bg: rgba(200, 240, 96, 0.18);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif; font-weight: 300;
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+    opacity: 0.5;
+  }
+  header {
+    border-bottom: 1px solid var(--border); padding: 18px 32px;
+    display: flex; align-items: baseline; gap: 16px;
+  }
+  header h1 { font-family: 'Bebas Neue'; font-size: 26px; letter-spacing: 3px; color: var(--accent); }
+  header span { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); letter-spacing: 2px; }
+  .layout { display: grid; grid-template-columns: 1fr 300px; flex: 1; overflow: hidden; }
+
+  /* TEXT PANEL */
+  .text-panel { padding: 36px 44px; overflow-y: auto; border-right: 1px solid var(--border); }
+  .text-panel::-webkit-scrollbar { width: 3px; }
+  .text-panel::-webkit-scrollbar-thumb { background: var(--border); }
+  #text-display { font-size: 17px; line-height: 1.95; font-weight: 300; }
+  .sentence {
+    display: inline; border-radius: 2px; padding: 1px 3px; margin: 0 1px;
+    transition: all 0.2s; cursor: pointer; border-left: 2px solid transparent;
+  }
+  .sentence.done { color: var(--text-dim); }
+  .sentence.active {
+    background: var(--playing-bg); border-left: 2px solid var(--accent);
+    color: #fff; padding-left: 8px;
+  }
+  .sentence:hover { background: rgba(200,240,96,0.07); }
+  .no-file {
+    font-family: 'IBM Plex Mono'; font-size: 13px; color: var(--text-dim);
+    letter-spacing: 1px; margin-top: 20px;
+  }
+
+  /* CONTROLS PANEL */
+  .controls-panel { padding: 28px 24px; display: flex; flex-direction: column; gap: 22px; overflow-y: auto; }
+  .section-label {
+    font-family: 'IBM Plex Mono'; font-size: 10px; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;
+  }
+
+  /* Waveform */
+  .waveform { display: flex; align-items: center; justify-content: center; gap: 3px; height: 28px; opacity: 0.25; transition: opacity 0.3s; }
+  .waveform.playing { opacity: 1; }
+  .bar { width: 3px; background: var(--accent); border-radius: 2px; height: 4px; }
+  .waveform.playing .bar { animation: wave 0.8s ease-in-out infinite; }
+  .waveform.playing .bar:nth-child(1)  { animation-delay: 0.00s; }
+  .waveform.playing .bar:nth-child(2)  { animation-delay: 0.10s; }
+  .waveform.playing .bar:nth-child(3)  { animation-delay: 0.15s; }
+  .waveform.playing .bar:nth-child(4)  { animation-delay: 0.05s; }
+  .waveform.playing .bar:nth-child(5)  { animation-delay: 0.20s; }
+  .waveform.playing .bar:nth-child(6)  { animation-delay: 0.12s; }
+  .waveform.playing .bar:nth-child(7)  { animation-delay: 0.08s; }
+  .waveform.playing .bar:nth-child(8)  { animation-delay: 0.18s; }
+  .waveform.playing .bar:nth-child(9)  { animation-delay: 0.03s; }
+  .waveform.playing .bar:nth-child(10) { animation-delay: 0.14s; }
+  @keyframes wave { 0%,100%{height:4px} 50%{height:22px} }
+
+  /* Progress */
+  .progress-track { height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; cursor: pointer; }
+  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.1s; pointer-events: none; }
+  .time-row { display: flex; justify-content: space-between; font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  audio { width: 100%; margin-top: 10px; accent-color: var(--accent); }
+  #sent-info { font-family: 'IBM Plex Mono'; font-size: 10px; color: var(--text-dim); text-align: center; letter-spacing: 1px; margin-top: 6px; }
+
+  /* Nav buttons */
+  .nav-row { display: flex; gap: 8px; }
+  .ctrl-btn {
+    flex: 1; padding: 9px; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-family: 'IBM Plex Mono'; font-size: 11px; letter-spacing: 1px;
+    cursor: pointer; border-radius: 2px; transition: border-color 0.2s, color 0.2s; text-transform: uppercase;
+  }
+  .ctrl-btn:hover { border-color: var(--accent-dim); color: var(--accent); }
+  .ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  /* Drop zones */
+  .drop-zone {
+    border: 1px dashed var(--border); border-radius: 2px; padding: 14px;
+    text-align: center; cursor: pointer; transition: all 0.2s;
+    font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px;
+    line-height: 1.6;
+  }
+  .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent-dim); background: rgba(200,240,96,0.04); color: var(--text); }
+  .drop-zone.loaded { border-color: var(--accent-dim); color: var(--accent); }
+  .drop-zone input { display: none; }
+
+  #status { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); letter-spacing: 1px; text-align: center; min-height: 14px; }
+  #status.ok { color: var(--accent); }
+  #status.err { color: #ff6b6b; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>TTS PLAYER</h1>
+  <span>Silero v5 · Russian</span>
+</header>
+
+<div class="layout">
+
+  <div class="text-panel">
+    <div id="text-display">
+      <p class="no-file">Drop output.wav and timings.json to begin →</p>
+    </div>
+  </div>
+
+  <div class="controls-panel">
+
+    <div class="waveform" id="waveform">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div>
+    </div>
+
+    <!-- Playback -->
+    <div>
+      <div class="section-label">Playback</div>
+      <div class="progress-track" id="progress-track">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div class="time-row">
+        <span id="time-cur">0:00</span>
+        <span id="time-tot">0:00</span>
+      </div>
+      <audio id="audio" controls></audio>
+      <div id="sent-info">—</div>
+    </div>
+
+    <!-- Navigate -->
+    <div>
+      <div class="section-label">Navigate</div>
+      <div class="nav-row">
+        <button class="ctrl-btn" id="prev-btn" disabled>◂ Prev</button>
+        <button class="ctrl-btn" id="next-btn" disabled>Next ▸</button>
+      </div>
+    </div>
+
+    <!-- Load files -->
+    <div>
+      <div class="section-label">Load Files</div>
+      <div class="drop-zone" id="dz-wav">
+        <input type="file" id="fi-wav" accept=".wav,.mp3,.ogg">
+        Drop <b>output.wav</b> here
+      </div>
+      <div class="drop-zone" id="dz-json" style="margin-top:8px;">
+        <input type="file" id="fi-json" accept=".json">
+        Drop <b>timings.json</b> here
+      </div>
+      <div class="drop-zone" id="dz-txt" style="margin-top:8px;">
+        <input type="file" id="fi-txt" accept=".txt">
+        Drop <b>output_text.txt</b> here
+      </div>
+    </div>
+
+    <div id="status">—</div>
+
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────
+let timings = [];
+let sourceText = '';
+let currentIdx = -1;
+let wavLoaded = false;
+let jsonLoaded = false;
+let txtLoaded = false;
+
+// ── Elements ──────────────────────────────────────────
+const audio        = document.getElementById('audio');
+const waveform     = document.getElementById('waveform');
+const progressFill = document.getElementById('progress-fill');
+const progressTrack= document.getElementById('progress-track');
+const timeCur      = document.getElementById('time-cur');
+const timeTot      = document.getElementById('time-tot');
+const sentInfo     = document.getElementById('sent-info');
+const textDisplay  = document.getElementById('text-display');
+const prevBtn      = document.getElementById('prev-btn');
+const nextBtn      = document.getElementById('next-btn');
+const statusEl     = document.getElementById('status');
+
+// ── Render sentences ──────────────────────────────────
+function renderSentences() {
+  if (!sourceText || !timings.length) return;
+  // Build display: replace each sentence in the text with a clickable span
+  // We match sentence text inside the full source text to preserve paragraph breaks
+  let html = sourceText;
+  // Escape for use in regex
+  timings.forEach((t, i) => {
+    const escaped = t.sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(
+      new RegExp(escaped),
+      `<span class="sentence pending" data-idx="${i}">${t.sentence}</span>`
+    );
+  });
+  // Preserve paragraph breaks
+  html = html.split('\n').map(line => line.trim() ? `<p style="margin-bottom:1.2em">${line}</p>` : '').join('');
+  textDisplay.innerHTML = html;
+}
+
+// ── Highlight active sentence ─────────────────────────
+function highlight(idx) {
+  if (idx === currentIdx) return;
+  currentIdx = idx;
+  textDisplay.querySelectorAll('.sentence').forEach((s, i) => {
+    s.className = 'sentence ' + (i < idx ? 'done' : i === idx ? 'active' : 'pending');
+  });
+  const active = textDisplay.querySelector('.sentence.active');
+  if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  sentInfo.textContent = `sentence ${idx + 1} / ${timings.length}`;
+}
+
+// ── Find sentence by current time ────────────────────
+// Uses exact start_sec from timings.json — no estimation
+function timeToIdx(t) {
+  let idx = 0;
+  for (let i = 0; i < timings.length; i++) {
+    if (t >= timings[i].start_sec) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+// ── Audio events ──────────────────────────────────────
+audio.addEventListener('timeupdate', () => {
+  const t = audio.currentTime;
+  const d = audio.duration || 1;
+  progressFill.style.width = (t / d * 100) + '%';
+  timeCur.textContent = fmt(t);
+  if (timings.length) highlight(timeToIdx(t));
+});
+
+audio.addEventListener('loadedmetadata', () => {
+  timeTot.textContent = fmt(audio.duration);
+});
+
+audio.addEventListener('play',  () => waveform.classList.add('playing'));
+audio.addEventListener('pause', () => waveform.classList.remove('playing'));
+audio.addEventListener('ended', () => {
+  waveform.classList.remove('playing');
+  textDisplay.querySelectorAll('.sentence').forEach(s => s.className = 'sentence done');
+  sentInfo.textContent = 'Done';
+});
+
+// Click progress bar to seek
+progressTrack.addEventListener('click', e => {
+  if (!audio.duration) return;
+  const rect = progressTrack.getBoundingClientRect();
+  audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+});
+
+// ── Prev / Next ───────────────────────────────────────
+prevBtn.addEventListener('click', () => {
+  const idx = Math.max(0, currentIdx - 1);
+  if (timings[idx] !== undefined) { audio.currentTime = timings[idx].start_sec; audio.play(); }
+});
+nextBtn.addEventListener('click', () => {
+  const idx = Math.min(timings.length - 1, currentIdx + 1);
+  if (timings[idx] !== undefined) { audio.currentTime = timings[idx].start_sec; audio.play(); }
+});
+
+// Click sentence to seek
+textDisplay.addEventListener('click', e => {
+  const span = e.target.closest('.sentence');
+  if (!span || !audio.src) return;
+  const idx = parseInt(span.dataset.idx);
+  if (timings[idx] !== undefined) { audio.currentTime = timings[idx].start_sec; audio.play(); }
+});
+
+// ── Drop zones ────────────────────────────────────────
+function setupDrop(dzId, fiId, onFile) {
+  const dz = document.getElementById(dzId);
+  const fi = document.getElementById(fiId);
+  dz.addEventListener('click', () => fi.click());
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0], dz); });
+  fi.addEventListener('change', () => { if (fi.files[0]) onFile(fi.files[0], dz); });
+}
+
+setupDrop('dz-wav', 'fi-wav', (file, dz) => {
+  audio.src = URL.createObjectURL(file);
+  dz.innerHTML = '✓ ' + file.name;
+  dz.classList.add('loaded');
+  wavLoaded = true;
+  checkReady();
+});
+
+setupDrop('dz-json', 'fi-json', (file, dz) => {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      timings = JSON.parse(e.target.result);
+      dz.innerHTML = `✓ ${file.name} <span style="color:var(--text-dim)"> · ${timings.length} sentences</span>`;
+      dz.classList.add('loaded');
+      jsonLoaded = true;
+      if (txtLoaded) renderSentences();
+      prevBtn.disabled = false;
+      nextBtn.disabled = false;
+      checkReady();
+    } catch {
+      setStatus('Invalid JSON file', 'err');
+    }
+  };
+  reader.readAsText(file);
+});
+
+setupDrop('dz-txt', 'fi-txt', (file, dz) => {
+  const reader = new FileReader();
+  reader.onload = e => {
+    sourceText = e.target.result.trim();
+    dz.innerHTML = '✓ ' + file.name;
+    dz.classList.add('loaded');
+    txtLoaded = true;
+    if (jsonLoaded) renderSentences();
+    checkReady();
+  };
+  reader.readAsText(file);
+});
+
+function checkReady() {
+  if (wavLoaded && jsonLoaded && txtLoaded) setStatus('Ready — press play!', 'ok');
+  else if (!wavLoaded)  setStatus('Drop output.wav', '');
+  else if (!jsonLoaded) setStatus('Drop timings.json', '');
+  else if (!txtLoaded)  setStatus('Drop output_text.txt', '');
+}
+
+// ── Helpers ───────────────────────────────────────────
+function fmt(s) {
+  s = Math.floor(s || 0);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function setStatus(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = cls || '';
+}
+</script>
+</body>
+</html>
