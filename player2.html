@@ -29,10 +29,11 @@
   }
   header h1 { font-family: 'Bebas Neue'; font-size: 26px; letter-spacing: 3px; color: var(--accent); }
   header span { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); letter-spacing: 2px; }
-  .layout { display: grid; grid-template-columns: 1fr 300px; flex: 1; overflow: hidden; }
+  .layout { display: grid; grid-template-columns: 1fr 300px; flex: 1; overflow: hidden; height: calc(100vh - 63px); }
+  html, body { height: 100%; overflow: hidden; }
 
   /* TEXT PANEL */
-  .text-panel { padding: 36px 44px; overflow-y: auto; border-right: 1px solid var(--border); }
+  .text-panel { padding: 36px 44px; overflow-y: auto; border-right: 1px solid var(--border); height: 100%; }
   .text-panel::-webkit-scrollbar { width: 3px; }
   .text-panel::-webkit-scrollbar-thumb { background: var(--border); }
   #text-display { font-size: 17px; line-height: 1.95; font-weight: 300; }
@@ -52,7 +53,7 @@
   }
 
   /* CONTROLS PANEL */
-  .controls-panel { padding: 28px 24px; display: flex; flex-direction: column; gap: 22px; overflow-y: auto; }
+  .controls-panel { padding: 28px 24px; display: flex; flex-direction: column; gap: 22px; overflow-y: auto; height: 100%; }
   .section-label {
     font-family: 'IBM Plex Mono'; font-size: 10px; letter-spacing: 3px;
     text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;
