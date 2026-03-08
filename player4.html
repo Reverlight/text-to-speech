@@ -93,16 +93,31 @@
   .ctrl-btn:hover { border-color: var(--accent-dim); color: var(--accent); }
   .ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-  /* Drop zones */
+  /* Drop zone — single folder picker */
   .drop-zone {
-    border: 1px dashed var(--border); border-radius: 2px; padding: 14px;
+    border: 1px dashed var(--border); border-radius: 2px; padding: 20px 14px;
     text-align: center; cursor: pointer; transition: all 0.2s;
     font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px;
-    line-height: 1.6;
+    line-height: 1.8;
   }
   .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent-dim); background: rgba(200,240,96,0.04); color: var(--text); }
-  .drop-zone.loaded { border-color: var(--accent-dim); color: var(--accent); }
+  .drop-zone.loaded { border-color: var(--accent-dim); }
   .drop-zone input { display: none; }
+  .drop-zone .folder-icon { font-size: 22px; display: block; margin-bottom: 6px; opacity: 0.5; }
+
+  /* File checklist */
+  .file-list { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+  .file-item {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'IBM Plex Mono'; font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px;
+  }
+  .file-item .dot {
+    width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--border); flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  .file-item.ok .dot { background: var(--accent); border-color: var(--accent); }
+  .file-item .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  .file-item.ok .fname { color: var(--accent); }
 
   #status { font-family: 'IBM Plex Mono'; font-size: 11px; color: var(--text-dim); letter-spacing: 1px; text-align: center; min-height: 14px; }
   #status.ok { color: var(--accent); }
@@ -120,7 +135,7 @@
 
   <div class="text-panel">
     <div id="text-display">
-      <p class="no-file">Drop output.wav and timings.json to begin →</p>
+      <p class="no-file">Select output folder to begin →</p>
     </div>
   </div>
 
@@ -156,20 +171,36 @@
       </div>
     </div>
 
-    <!-- Load files -->
+    <!-- Load folder -->
     <div>
-      <div class="section-label">Load Files</div>
-      <div class="drop-zone" id="dz-wav">
-        <input type="file" id="fi-wav" accept=".wav,.mp3,.ogg">
-        Drop <b>output.wav</b> here
+      <div class="section-label">Load Folder</div>
+
+      <!-- Folder picker (webkitdirectory) -->
+      <div class="drop-zone" id="dz-folder">
+        <input type="file" id="fi-folder" webkitdirectory multiple>
+        <span class="folder-icon">📂</span>
+        Click to open folder<br>
+        <span style="color:var(--text-dim);font-size:10px">or drag &amp; drop folder here</span>
       </div>
-      <div class="drop-zone" id="dz-json" style="margin-top:8px;">
-        <input type="file" id="fi-json" accept=".json">
-        Drop <b>timings.json</b> here
+
+      <!-- Also allow selecting multiple files at once as fallback -->
+      <div class="drop-zone" id="dz-multi" style="margin-top:8px;">
+        <input type="file" id="fi-multi" multiple accept=".wav,.mp3,.ogg,.json,.txt">
+        <span style="font-size:9px;letter-spacing:2px;color:var(--text-dim)">OR SELECT FILES</span><br>
+        <span style="font-size:10px">Ctrl+click wav + json + txt</span>
       </div>
-      <div class="drop-zone" id="dz-txt" style="margin-top:8px;">
-        <input type="file" id="fi-txt" accept=".txt">
-        Drop <b>output_text.txt</b> here
+
+      <!-- File status checklist -->
+      <div class="file-list">
+        <div class="file-item" id="fi-status-wav">
+          <div class="dot"></div><span class="fname">output.wav</span>
+        </div>
+        <div class="file-item" id="fi-status-json">
+          <div class="dot"></div><span class="fname">timings.json</span>
+        </div>
+        <div class="file-item" id="fi-status-txt">
+          <div class="dot"></div><span class="fname">output_text.txt</span>
+        </div>
       </div>
     </div>
 
@@ -200,13 +231,137 @@ const prevBtn      = document.getElementById('prev-btn');
 const nextBtn      = document.getElementById('next-btn');
 const statusEl     = document.getElementById('status');
 
+// ── File detection by name/extension ─────────────────
+function classifyFile(file) {
+  const name = file.name.toLowerCase();
+  if (/\.(wav|mp3|ogg)$/.test(name)) return 'wav';
+  if (/\.json$/.test(name))          return 'json';
+  if (/\.txt$/.test(name))           return 'txt';
+  return null;
+}
+
+function processFiles(fileList) {
+  const files = Array.from(fileList);
+  let found = { wav: null, json: null, txt: null };
+  for (const f of files) {
+    const type = classifyFile(f);
+    if (type && !found[type]) found[type] = f;
+  }
+  if (found.wav)  loadWav(found.wav);
+  if (found.json) loadJson(found.json);
+  if (found.txt)  loadTxt(found.txt);
+  if (!found.wav && !found.json && !found.txt) {
+    setStatus('No recognized files found', 'err');
+  }
+}
+
+// ── Loaders ───────────────────────────────────────────
+function loadWav(file) {
+  audio.src = URL.createObjectURL(file);
+  wavLoaded = true;
+  setFileStatus('wav', file.name);
+  checkReady();
+}
+
+function loadJson(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      timings = JSON.parse(e.target.result);
+      jsonLoaded = true;
+      prevBtn.disabled = false;
+      nextBtn.disabled = false;
+      setFileStatus('json', `${file.name} · ${timings.length} sent`);
+      if (txtLoaded) renderSentences();
+      checkReady();
+    } catch {
+      setStatus('Invalid JSON file', 'err');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function loadTxt(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    sourceText = e.target.result.trim();
+    txtLoaded = true;
+    setFileStatus('txt', file.name);
+    if (jsonLoaded) renderSentences();
+    checkReady();
+  };
+  reader.readAsText(file);
+}
+
+// ── Drop zone: folder ─────────────────────────────────
+const dzFolder = document.getElementById('dz-folder');
+const fiFolder = document.getElementById('fi-folder');
+dzFolder.addEventListener('click', () => fiFolder.click());
+dzFolder.addEventListener('dragover', e => { e.preventDefault(); dzFolder.classList.add('dragover'); });
+dzFolder.addEventListener('dragleave', () => dzFolder.classList.remove('dragover'));
+dzFolder.addEventListener('drop', e => {
+  e.preventDefault();
+  dzFolder.classList.remove('dragover');
+  // Collect files from dataTransfer (handles dropped folders in modern browsers)
+  const items = e.dataTransfer.items;
+  if (items) {
+    const files = [];
+    const promises = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (entry && entry.isDirectory) {
+        promises.push(readDirEntries(entry, files));
+      } else {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    Promise.all(promises).then(() => processFiles(files));
+  } else {
+    processFiles(e.dataTransfer.files);
+  }
+});
+fiFolder.addEventListener('change', () => processFiles(fiFolder.files));
+
+// Recursively read directory entries
+function readDirEntries(dirEntry, acc) {
+  return new Promise(resolve => {
+    const reader = dirEntry.createReader();
+    reader.readEntries(entries => {
+      const subs = [];
+      for (const entry of entries) {
+        if (entry.isFile) {
+          subs.push(new Promise(res => entry.file(f => { acc.push(f); res(); })));
+        } else if (entry.isDirectory) {
+          subs.push(readDirEntries(entry, acc));
+        }
+      }
+      Promise.all(subs).then(resolve);
+    });
+  });
+}
+
+// ── Drop zone: multi-file fallback ─────────────────────
+const dzMulti = document.getElementById('dz-multi');
+const fiMulti = document.getElementById('fi-multi');
+dzMulti.addEventListener('click', () => fiMulti.click());
+dzMulti.addEventListener('dragover', e => { e.preventDefault(); dzMulti.classList.add('dragover'); });
+dzMulti.addEventListener('dragleave', () => dzMulti.classList.remove('dragover'));
+dzMulti.addEventListener('drop', e => { e.preventDefault(); dzMulti.classList.remove('dragover'); processFiles(e.dataTransfer.files); });
+fiMulti.addEventListener('change', () => processFiles(fiMulti.files));
+
+// ── File status indicators ────────────────────────────
+function setFileStatus(type, label) {
+  const el = document.getElementById(`fi-status-${type}`);
+  if (!el) return;
+  el.classList.add('ok');
+  el.querySelector('.fname').textContent = label;
+}
+
 // ── Render sentences ──────────────────────────────────
 function renderSentences() {
   if (!sourceText || !timings.length) return;
-  // Build display: replace each sentence in the text with a clickable span
-  // We match sentence text inside the full source text to preserve paragraph breaks
   let html = sourceText;
-  // Escape for use in regex
   timings.forEach((t, i) => {
     const escaped = t.sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     html = html.replace(
@@ -214,7 +369,6 @@ function renderSentences() {
       `<span class="sentence pending" data-idx="${i}">${t.sentence}</span>`
     );
   });
-  // Preserve paragraph breaks
   html = html.split('\n').map(line => line.trim() ? `<p style="margin-bottom:1.2em">${line}</p>` : '').join('');
   textDisplay.innerHTML = html;
 }
@@ -232,8 +386,6 @@ function highlight(idx) {
   sentInfo.textContent = `sentence ${idx + 1} / ${timings.length}`;
 }
 
-// ── Find sentence by current time ────────────────────
-// Uses exact start_sec from timings.json — no estimation
 function timeToIdx(t) {
   let idx = 0;
   for (let i = 0; i < timings.length; i++) {
@@ -264,7 +416,6 @@ audio.addEventListener('ended', () => {
   sentInfo.textContent = 'Done';
 });
 
-// Click progress bar to seek
 progressTrack.addEventListener('click', e => {
   if (!audio.duration) return;
   const rect = progressTrack.getBoundingClientRect();
@@ -281,71 +432,12 @@ nextBtn.addEventListener('click', () => {
   if (timings[idx] !== undefined) { audio.currentTime = timings[idx].start_sec; audio.play(); }
 });
 
-// Click sentence to seek
 textDisplay.addEventListener('click', e => {
   const span = e.target.closest('.sentence');
   if (!span || !audio.src) return;
   const idx = parseInt(span.dataset.idx);
   if (timings[idx] !== undefined) { audio.currentTime = timings[idx].start_sec; audio.play(); }
 });
-
-// ── Drop zones ────────────────────────────────────────
-function setupDrop(dzId, fiId, onFile) {
-  const dz = document.getElementById(dzId);
-  const fi = document.getElementById(fiId);
-  dz.addEventListener('click', () => fi.click());
-  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
-  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
-  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dragover'); if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0], dz); });
-  fi.addEventListener('change', () => { if (fi.files[0]) onFile(fi.files[0], dz); });
-}
-
-setupDrop('dz-wav', 'fi-wav', (file, dz) => {
-  audio.src = URL.createObjectURL(file);
-  dz.innerHTML = '✓ ' + file.name;
-  dz.classList.add('loaded');
-  wavLoaded = true;
-  checkReady();
-});
-
-setupDrop('dz-json', 'fi-json', (file, dz) => {
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      timings = JSON.parse(e.target.result);
-      dz.innerHTML = `✓ ${file.name} <span style="color:var(--text-dim)"> · ${timings.length} sentences</span>`;
-      dz.classList.add('loaded');
-      jsonLoaded = true;
-      if (txtLoaded) renderSentences();
-      prevBtn.disabled = false;
-      nextBtn.disabled = false;
-      checkReady();
-    } catch {
-      setStatus('Invalid JSON file', 'err');
-    }
-  };
-  reader.readAsText(file);
-});
-
-setupDrop('dz-txt', 'fi-txt', (file, dz) => {
-  const reader = new FileReader();
-  reader.onload = e => {
-    sourceText = e.target.result.trim();
-    dz.innerHTML = '✓ ' + file.name;
-    dz.classList.add('loaded');
-    txtLoaded = true;
-    if (jsonLoaded) renderSentences();
-    checkReady();
-  };
-  reader.readAsText(file);
-});
-
-function checkReady() {
-  if (wavLoaded && jsonLoaded && txtLoaded) setStatus('Ready — press play!', 'ok');
-  else if (!wavLoaded)  setStatus('Drop output.wav', '');
-  else if (!jsonLoaded) setStatus('Drop timings.json', '');
-  else if (!txtLoaded)  setStatus('Drop output_text.txt', '');
-}
 
 // ── Helpers ───────────────────────────────────────────
 function fmt(s) {
@@ -355,6 +447,12 @@ function fmt(s) {
 function setStatus(msg, cls) {
   statusEl.textContent = msg;
   statusEl.className = cls || '';
+}
+function checkReady() {
+  if (wavLoaded && jsonLoaded && txtLoaded) setStatus('Ready — press play!', 'ok');
+  else if (!wavLoaded)  setStatus('Waiting for audio file…', '');
+  else if (!jsonLoaded) setStatus('Waiting for timings.json…', '');
+  else if (!txtLoaded)  setStatus('Waiting for text file…', '');
 }
 </script>
 </body>
