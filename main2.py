@@ -4,7 +4,11 @@ import os
 import torch
 import soundfile as sf
 import numpy as np
+import pyrubberband as rb
 from bs4 import BeautifulSoup
+
+
+SLOW_FACTOR = 1.15  # 1.0 = original, 1.15 = 15% slower, pitch unchanged
 
 
 def get_next_run_dir(base='output'):
@@ -20,6 +24,13 @@ def get_next_run_dir(base='output'):
     return out_dir
 
 
+def slow_down_audio(chunk: np.ndarray, sample_rate: int, factor: float) -> np.ndarray:
+    """Time-stretch without pitch shift using rubberband.
+    factor > 1.0 = slower, pitch stays the same.
+    """
+    return rb.time_stretch(chunk.astype(np.float32), sample_rate, factor)
+
+
 model = torch.package.PackageImporter('v5_ru.pt').load_pickle('tts_models', 'model')
 
 with open('text.txt', 'r', encoding='utf-8') as f:
@@ -28,7 +39,7 @@ text = BeautifulSoup(text, 'html.parser').get_text()
 
 sample_rate = 48000
 speaker = 'eugene'
-sentence_pause_sec = 1.2
+sentence_pause_sec = 0.7
 paragraph_pause_sec = 1.2
 sentence_pause = np.zeros(int(sample_rate * sentence_pause_sec))
 paragraph_pause = np.zeros(int(sample_rate * paragraph_pause_sec))
@@ -47,6 +58,8 @@ for paragraph in paragraphs:
         print(f"Generating: {sentence[:50]}...")
         audio = model.apply_tts(text=sentence, speaker=speaker, sample_rate=sample_rate)
         chunk = audio.numpy()
+        chunk = slow_down_audio(chunk, sample_rate, SLOW_FACTOR)
+
         start_sec = round(cursor_samples / sample_rate, 4)
         cursor_samples += len(chunk)
         end_sec = round(cursor_samples / sample_rate, 4)
